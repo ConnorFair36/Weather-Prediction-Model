@@ -1,0 +1,13 @@
+pandas
+numpy
+matplotlib
+seaborn
+cartopy
+geopandas
+scikit-learn
+torch
+cdsapi
+xarray
+gribapi
+dask
+zarr

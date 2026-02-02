@@ -1,0 +1,22 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+uv.lock
+pyproject.toml
+
+# Virtual environments
+.venv
+
+# uv
+**/__marimo__
+
+# Storage for datasets and models
+training/data/
+training/model/
+
+# Other
+*.DS_Store
