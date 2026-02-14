@@ -28,7 +28,7 @@ def _():
     import pandas as pd
     import dask
     import zarr
-    return mo, xr
+    return mo, plt, xr
 
 
 @app.cell

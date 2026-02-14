@@ -16,7 +16,7 @@ pyproject.toml
 
 # Storage for datasets and models
 training/data/
-training/model/
+training/models/
 
 # Other
 *.DS_Store
