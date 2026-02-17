@@ -19,13 +19,19 @@ def _():
 
 
 @app.cell
+def _():
+    CURRENT_MODEL = "2"
+    return (CURRENT_MODEL,)
+
+
+@app.cell
 def _(WeatherTrainingData, torch, transformations):
     # import the data from the dataset
     # training
-    train_dataset = WeatherTrainingData(dir="./training/data/era5_conus_downsampled.zarr",set_type="train",seq_length=2,transform=transformations)
+    train_dataset = WeatherTrainingData(dir="./training/data/era5_conus_downsampled.zarr",set_type="train",seq_length=2,transform=lambda x: transformations(x, to_polar=False))
     loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=128,shuffle=True)
     # validation
-    validation_dataset = WeatherTrainingData(dir="./training/data/era5_conus_downsampled.zarr",set_type="validation",seq_length=2,transform=transformations)
+    validation_dataset = WeatherTrainingData(dir="./training/data/era5_conus_downsampled.zarr",set_type="validation",seq_length=2,transform=lambda x: transformations(x, to_polar=False))
     validation_loader = torch.utils.data.DataLoader(dataset=validation_dataset, batch_size=128,shuffle=True)
     return loader, validation_loader
 
@@ -97,46 +103,46 @@ def _(AR_CNN, device, loader, nn, np, optim, plt, torch, validation_loader):
         # Training phase
         epoch_train_losses = []
         model.train()  # Set model to training mode
-    
+
         for images, truth in loader:
             images = images.to(device, dtype=torch.float32)
             truth = truth[:,1:2,:,:].to(device, dtype=torch.float32)
-        
+
             images[images.isnan()] = -99.0
             truth_mask = ~truth.isnan()
-        
+
             pred_rain = model(images)
             train_loss = loss_function(pred_rain[truth_mask], truth[truth_mask])
-        
+
             optimizer.zero_grad()
             train_loss.backward()
             optimizer.step()
-        
+
             epoch_train_losses.append(train_loss.item())
-    
+
         # Validation phase
         model.eval()  # Set model to evaluation mode
         epoch_val_losses = []  # MOVED OUTSIDE THE LOOP
-    
+
         for images, truth in validation_loader:
             images = images.to(device, dtype=torch.float32)
             truth = truth[:,1:2,:,:].to(device, dtype=torch.float32)
-        
+
             images[images.isnan()] = -99.0
             truth_mask = ~truth.isnan()
-        
+
             with torch.no_grad():
                 pred_rain = model(images)
                 val_loss = loss_function(pred_rain[truth_mask], truth[truth_mask])
                 epoch_val_losses.append(val_loss.item())
-    
+
         # Calculate epoch averages
         avg_train_loss = np.mean(epoch_train_losses)
         avg_val_loss = np.mean(epoch_val_losses)
-    
+
         losses.append(avg_train_loss)
         val_losses.append(avg_val_loss)
-    
+
         print(f"Epoch {epoch+1}/{epochs}, Train Loss: {avg_train_loss:.6f}, Val Loss: {avg_val_loss:.6f}")
 
     plt.style.use('ggplot')
@@ -150,14 +156,14 @@ def _(AR_CNN, device, loader, nn, np, optim, plt, torch, validation_loader):
 
 
 @app.cell
-def _(model, torch):
+def _(CURRENT_MODEL, model, torch):
     # save the model weights
-    torch.save(model.state_dict(), "./training/models/AR_CNN_16_64_n1.pt")
+    torch.save(model.state_dict(), f"./training/models/AR_CNN_16_64_n{CURRENT_MODEL}.pt")
     return
 
 
 @app.cell
-def _(losses, plt, val_losses):
+def _(CURRENT_MODEL, losses, plt, val_losses):
     plt.style.use('ggplot')
     plt.figure(figsize=(8, 5))
     plt.plot(losses, label='Traning Loss')
@@ -165,13 +171,13 @@ def _(losses, plt, val_losses):
     plt.xlabel('Iterations')
     plt.ylabel('Loss')
     plt.legend()
-    plt.savefig("./training/models/AR_CNN_16_64_n1_trainval_loss.png")
+    plt.savefig(f"./training/models/AR_CNN_16_64_n{CURRENT_MODEL}_trainval_loss.png")
     plt.show()
     return
 
 
 @app.cell
-def _(device, model, np, plt, torch, validation_loader):
+def _(CURRENT_MODEL, device, model, np, plt, torch, validation_loader):
     # Get a batch from validation loader
     dataiter2 = iter(validation_loader)
     images_test2, truth_test2 = next(dataiter2)
@@ -212,7 +218,7 @@ def _(device, model, np, plt, torch, validation_loader):
     fig.colorbar(im2, ax=axes[2], shrink=0.8)
 
     plt.tight_layout()
-    plt.savefig('1st_model_results.png', dpi=150, bbox_inches='tight')
+    plt.savefig(f'model_results_n{CURRENT_MODEL}.png', dpi=150, bbox_inches='tight')
     plt.show()
     return images_test2, rain_pred, truth_test2
 
@@ -251,6 +257,10 @@ def _(mo):
     - Epochs: 50
     - Train Loss: 0.077370
     - Val Loss: 0.074775
+    Model 2 (no polar coords for wind):
+    - Epochs: 50
+    - Train Loss: 0.082749
+    - Val Loss: 0.074345
     """)
     return
 

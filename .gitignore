@@ -14,9 +14,12 @@ pyproject.toml
 # uv
 **/__marimo__
 
-# Storage for datasets and models
-training/data/
-training/models/
+# Storage model weights
+src/weights/*.pt
+
+# Storage for datasets
+data/*.zarr
+data/*.grib
 
 # Other
 *.DS_Store
