@@ -12,3 +12,4 @@ gribapi
 dask
 zarr
 pyyaml
+netcdf4

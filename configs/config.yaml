@@ -1,0 +1,20 @@
+data:
+  area:
+  - 49.5
+  - -125
+  - 24.5
+  - -66.5
+  time:
+    start:
+      year: 2025
+      month: 1
+    end:
+      year: 2025
+      month: 12
+  variables:
+  - 10m_u_component_of_wind
+  - 10m_v_component_of_wind
+  - 2m_temperature
+  - surface_pressure
+  - total_cloud_cover
+  - total_precipitation

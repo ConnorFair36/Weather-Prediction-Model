@@ -1,50 +1,45 @@
-import marimo
+import cdsapi
+import xarray as xr
+import numpy as np
+import dask
+import zarr
+import gribapi
 
-__generated_with = "0.19.6"
-app = marimo.App(width="medium")
+import calendar
+import datetime
+import yaml
 
-
-@app.cell
-def _():
-    import marimo as mo
-    import cdsapi
-    import xarray as xr
-    import numpy as np
-    import gribapi
-    import matplotlib.pyplot as plt
-    import pandas as pd
-    import dask
-    import zarr
-    return cdsapi, mo, xr
+# read the yaml config file dataset settings
+with open('../configs/config.yaml', 'r') as file:
+    config_data = yaml.safe_load(file)
 
 
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    # Download Data
-    To ensure I don't blow up the limited memory on my device I will be downloading 1 month, cleaning, downsampling, saving and clearing old data until I have all 12 months stored in a .zarr file. Each day will be split into a few chunks to improve readabillity speed for training and compression to help reduce storage space.
+config_data = config_data['data']
+date_range = config_data['time']
 
-    Region to be extracted:
-    - North: 49.5°
-    - West: -125°
-    - South: 24.5°
-    - East: -66.5°
-    """)
-    return
+client = cdsapi.Client()
+grib_files = []
+# create a new request for each year
+for year in range(date_range['start']['year'], date_range['end']['year'] + 1):
+    # generate the list of months for the current year
+    months = []
+    if year == date_range['start']['year'] and year == date_range['end']['year']:
+        months = list(range(date_range['start']['month'], date_range['end']['month'] + 1))
+    elif year == date_range['start']['year']:
+        months = list(range(date_range['start']['month'], 13))
+    elif year == date_range['end']['year']:
+        months = list(range(1, date_range['end']['month'] + 1))
+    else:
+        months = list(range(1,13))
+    # convert numbers to strings
+    months = [f"{month:02d}" for month in months]
 
-
-@app.cell
-def _(cdsapi):
-    dataset = "reanalysis-era5-land"
+    dataset = "reanalysis-era5-single-levels"
     request = {
-        "variable": [
-            "2m_temperature",
-            "10m_u_component_of_wind",
-            "10m_v_component_of_wind",
-            "total_precipitation"
-        ],
-        "year": "2025",
-        "month": "01",
+        "product_type": ["reanalysis"],
+        "variable": config_data['variables'],
+        "year": [str(year)],
+        "month": months,
         "day": [
             "01", "02", "03",
             "04", "05", "06",
@@ -70,188 +65,45 @@ def _(cdsapi):
         ],
         "data_format": "grib",
         "download_format": "unarchived",
-        "area": [49.5, -125, 24.5, -66.5]
+        "area": config_data['area']
     }
 
-    client = cdsapi.Client()
-    return client, dataset, request
+    
+    grib_files.append(client.retrieve(dataset, request).download())
+    print(f"The Dataset: {grib_files[-1]}")
 
-
-@app.cell
-def _(client, dataset, request):
-    client.retrieve(dataset, request).download()
-    return
-
-
-@app.cell
-def _(xr):
-    ds = xr.open_dataset("./85de23c247ffd5c702ce94477e713ba2.grib", engine="cfgrib")
-    ds
-    return (ds,)
-
-
-@app.cell
-def _(ds):
-    ds.isel(time = 0, step = 23)["t2m"].plot()
-    return
-
-
-@app.cell
-def _(ds):
-    # clip NAN values off boty ends of the time series block
-    # create valid time
-    ds_stacked = ds.assign_coords(
-        valid_time=ds["time"] + ds["step"]
+# clean and save the .grib dataset as a chunked .zarr dataset
+for grib_file in grib_files:
+    # grab total precipitation seperatly due to the different way it handles time
+    ds1 = xr.open_dataset(grib_file, engine="cfgrib", backend_kwargs={'filter_by_keys': {'shortName': 'tp'}})
+    # combine time and step into a single variable
+    ds_stacked = ds1.assign_coords(
+        valid_time=ds1["time"] + ds1["step"]
     )
     # compress time & step into 1 dimention
     ds_stacked = ds_stacked.stack(t=("time", "step"))
     # remove all entries where all values are nan
     ds_stacked = ds_stacked.dropna(dim="t", how="all")
-    # remove unessicary columns?
+    # remove the old time and step dimentions and replace them with the correct time dimention
     ds_clean = (
         ds_stacked
         .set_index(t="valid_time")
         .rename({"t": "valid_time"})
         .drop_vars(["time", "step"])
         .sortby("valid_time")
+        .rename({"valid_time": "time"})
     )
-    ds_clean
-    return (ds_clean,)
-
-
-@app.cell
-def _(ds_clean):
-    ds_clean["t2m"].mean(dim=["latitude", "longitude"]).plot(marker="o")
-    return
-
-
-@app.cell
-def _(ds_clean):
-    # downsample all spatial data 4x
-    ds_sampled = ds_clean.coarsen(latitude=4, boundary='pad').mean().coarsen(longitude=4, boundary='pad').mean()
-    return (ds_sampled,)
-
-
-@app.cell
-def _(ds_sampled):
-    ds_chunked = ds_sampled.chunk({
-        "valid_time": 24,
-        "latitude": 21,
-        "longitude": 49
-    })
-    ds_chunked.chunks
-    return (ds_chunked,)
-
-
-@app.cell
-def _(ds_chunked):
-    ds_chunked.to_zarr(
-        "./training/data/era5_conus_downsampled.zarr",
+    # get the rest of the variables from the dataset
+    ds2 = xr.open_dataset(grib_file, engine="cfgrib",
+                           backend_kwargs={'filter_by_keys': {'shortName': ['10u', '10v', '2t', 'sp', 'tcc']}})
+    # combine both datasets accross their shared dimentions (time, latitude, longitude)
+    full_ds = xr.merge([ds_clean, ds2])
+    # let dask estimate the optimal chunking strategy
+    full_ds = full_ds.chunk("auto")
+    # save to a .zarr file
+    zarr_file_name = f"era5_conus_{date_range['start']['year']}_{date_range['start']['month']}_to_{date_range['end']['year']}_{date_range['end']['month']}_{len(config_data['variables'])}var.zarr"
+    full_ds.to_zarr(
+        zarr_file_name,
         mode="w",
         consolidated=True
     )
-    return
-
-
-@app.cell
-def _(mo):
-    mo.md(r"""
-    Now that I have verified my data collection works, lets append the rest of the months to our .zarr file
-    """)
-    return
-
-
-@app.cell
-def _(client, dataset):
-    # loop through each month except jan
-    grib_files = []
-    for i in range(1, 12):
-        # month numbers are 0 indexed
-        length = 30
-        if i == 1:
-            length = 28 # febuary
-        elif i in [2, 4, 6, 7, 9, 11]: 
-            length = 31 # any month with 31 days [Mar, May, ...]
-
-        days = [f"{i+1:02d}" for i in range(length)]
-
-        new_request = {
-        "variable": [
-            "2m_temperature",
-            "10m_u_component_of_wind",
-            "10m_v_component_of_wind",
-            "total_precipitation"
-        ],
-        "year": "2025",
-        "month": f"{i+1:02d}",
-        "day": days,
-        "time": [
-            "00:00", "01:00", "02:00",
-            "03:00", "04:00", "05:00",
-            "06:00", "07:00", "08:00",
-            "09:00", "10:00", "11:00",
-            "12:00", "13:00", "14:00",
-            "15:00", "16:00", "17:00",
-            "18:00", "19:00", "20:00",
-            "21:00", "22:00", "23:00"
-        ],
-        "data_format": "grib",
-        "download_format": "unarchived",
-        "area": [49.5, -125, 24.5, -66.5]
-        }
-
-        print(f"Requesting month {i+1}")
-        grib_files.append(client.retrieve(dataset, new_request).download())
-        print(f"Recived month {i+1}: {grib_files[-1]}")
-    print(grib_files)
-    return (grib_files,)
-
-
-@app.cell
-def _(grib_files, xr):
-    for file in grib_files: 
-        file = "./" + file
-        ds_new = xr.open_dataset("./85de23c247ffd5c702ce94477e713ba2.grib", engine="cfgrib")
-        # clip NAN values off boty ends of the time series block
-        # create valid time
-        ds_new_stacked = ds_new.assign_coords(
-            valid_time=ds_new["time"] + ds_new["step"]
-        )
-        # compress time & step into 1 dimention
-        ds_new_stacked = ds_new_stacked.stack(t=("time", "step"))
-        # remove all entries where all values are nan
-        ds_new_stacked = ds_new_stacked.dropna(dim="t", how="all")
-        # remove unessicary columns?
-        ds_new_clean = (
-            ds_new_stacked
-            .set_index(t="valid_time")
-            .rename({"t": "valid_time"})
-            .drop_vars(["time", "step"])
-            .sortby("valid_time")
-        )
-        # downsample dataset 4x to make processing much faster
-        ds_new_sampled = ds_new_clean.coarsen(latitude=4, boundary='pad').mean().coarsen(longitude=4, boundary='pad').mean()
-        # divide data into smaller chunks for more efficent training
-        ds_new_chunked = ds_new_sampled.chunk({
-        "valid_time": 24,
-        "latitude": 21,
-        "longitude": 49
-        })
-        # append the new data o the existing .zarr file
-        ds_new_chunked.to_zarr(
-        "./training/data/era5_conus_downsampled.zarr",
-        mode="a",
-        append_dim="valid_time"
-        )
-
-
-    return
-
-
-@app.cell
-def _():
-    return
-
-
-if __name__ == "__main__":
-    app.run()
