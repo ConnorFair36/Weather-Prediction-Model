@@ -99,7 +99,11 @@ for grib_file in grib_files:
     # combine both datasets accross their shared dimentions (time, latitude, longitude)
     full_ds = xr.merge([ds_clean, ds2])
     # let dask estimate the optimal chunking strategy
-    full_ds = full_ds.chunk("auto")
+    full_ds = full_ds.chunk({
+    "time": 24,       # or whatever makes sense for your use case
+    "latitude": -1,
+    "longitude": -1
+})
     # save to a .zarr file
     zarr_file_name = f"era5_conus_{date_range['start']['year']}_{date_range['start']['month']}_to_{date_range['end']['year']}_{date_range['end']['month']}_{len(config_data['variables'])}var.zarr"
     full_ds.to_zarr(
