@@ -19,7 +19,7 @@ def _():
     import marimo as mo
     import numpy as np
     import torch
-    from torch import nn, utils
+    from torch import nn, utils, optim
     from src.models.convLSTM_parts import ConvLSTM
     from src.engine.training import train_model
 
@@ -27,11 +27,13 @@ def _():
     import seaborn as sns
 
     from src.data.read_data import WeatherTrainingData, create_transform_function
+    #from src.engine.eval_model import evaluate_model
     return (
         ConvLSTM,
         WeatherTrainingData,
         create_transform_function,
         nn,
+        optim,
         torch,
         train_model,
         utils,
@@ -86,7 +88,7 @@ def _(ConvLSTM, nn, torch):
                 kernel_size=1
             )
             self.num_pred_steps = num_pred_steps
-        
+
         def forward(self, x: torch.Tensor) -> torch.Tensor:
             # encodes the previous timesteps
             input_shapes = x.shape
@@ -136,15 +138,85 @@ def _(output):
 
 
 @app.cell
-def _(model, train_model, training_dataloader, val_dataloader):
+def _(model):
+    str(next(model.parameters()).device)
+    return
+
+
+@app.cell
+def _(model, nn, optim, train_model, training_dataloader, val_dataloader):
+    loss_function = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), 1e-4)
+
+
     results = train_model(
         model=model,
         training_dataset=training_dataloader,
         validation_dataset=val_dataloader,
-        device="mps",
-        lr=1e-4,
-    
+        epochs=5,
+        loss_fun=loss_function,
+        optimizer=optimizer,
     )
+    return loss_function, optimizer, results
+
+
+@app.cell
+def _(results):
+    results
+    return
+
+
+@app.cell
+def _(loss_function, model, optimizer, torch):
+    checkpoint = {
+        'epoch': 5,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'loss': loss_function,
+        # Optional: include lr_scheduler state if used
+        # 'scheduler_state_dict': scheduler.state_dict(),
+    }
+
+    # Save to disk
+    torch.save(checkpoint, 'checkpoint.pth')
+    return
+
+
+@app.cell
+def _():
+    # 1. Initialize model and optimizer as usual
+    #model = baseline_ConvLSTM(6, 12, 3, 2, 3)
+    #optimizer = MyOptimizerClass(model.parameters(), lr=0.001)
+
+    # 2. Load the checkpoint dictionary
+    #checkpoint = torch.load('checkpoint.pth')
+
+    # 3. Restore states
+    #model.load_state_dict(checkpoint['model_state_dict'])
+    #optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    #epoch = checkpoint['epoch']
+    #loss = checkpoint['loss']
+
+    # 4. Set to training mode
+    #model.train()
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _():
+    #[
+    #  [
+    #    0.048077811300754544
+    #  ],
+    #  [
+    #    0.04100131429731846
+    #  ]
+    #]
     return
 
 

@@ -16,10 +16,15 @@ pyproject.toml
 
 # Storage model weights
 src/weights/*.pt
+src/weights/*.pth
 
 # Storage for datasets
 data/*.zarr
 data/*.grib
+data/*.zip
+
+# generated gifs
+*.gif
 
 # Other
 *.DS_Store

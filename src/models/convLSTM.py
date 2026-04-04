@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from convLSTM_parts import *
+from .convLSTM_parts import *
 
 class baseline_ConvLSTM(nn.Module):
     def __init__(self,
