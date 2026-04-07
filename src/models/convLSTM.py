@@ -42,4 +42,4 @@ class baseline_ConvLSTM(nn.Module):
         decoder_states = [item for sublist in decoder_states for item in sublist]
         uncompressed_predictions = torch.cat(decoder_states, dim=1)
         output = self.forecaster(uncompressed_predictions)
-        return output
+        return torch.clamp(output, min=0)
