@@ -27,7 +27,7 @@ def _():
     import seaborn as sns
 
     from src.data.read_data import WeatherTrainingData, create_transform_function
-    #from src.engine.eval_model import evaluate_model
+    from src.engine.eval_model import evaluate_model
     return (
         ConvLSTM,
         WeatherTrainingData,
@@ -54,8 +54,8 @@ def _(WeatherTrainingData, create_transform_function, utils):
 
     training_data = WeatherTrainingData(dir="./data/era5_conus_2025_1_to_2025_12_6var.zarr", set_type="train", transform=transforms)
     val_data = WeatherTrainingData(dir="./data/era5_conus_2025_1_to_2025_12_6var.zarr", set_type="validation", transform=transforms)
-    training_dataloader = utils.data.DataLoader(training_data, batch_size=128, shuffle=True)
-    val_dataloader = utils.data.DataLoader(val_data, batch_size=128, shuffle=True)
+    training_dataloader = utils.data.DataLoader(training_data, batch_size=128, shuffle=True, num_workers=2)
+    val_dataloader = utils.data.DataLoader(val_data, batch_size=128, shuffle=True, num_workers=2)
     return training_dataloader, val_dataloader
 
 

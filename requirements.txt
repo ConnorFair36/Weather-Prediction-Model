@@ -13,3 +13,4 @@ dask
 zarr
 pyyaml
 netcdf4
+tqdm

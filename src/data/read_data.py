@@ -143,6 +143,33 @@ def generate_transforms(dir: str, lda: list[str], mean: list[str], std: list[str
             json.dump(file_data, file)
 
 
+class WeatherTransform:
+    def __init__(self, stats: dict, transforms: dict):
+        self.stats = stats
+        self.transforms = transforms
+
+    def __call__(self, data: torch.tensor):
+        # data variables are in the order: sp, t2m, tcc, tp, u10, v10
+        for idx, name in enumerate(["sp", "t2m", "tcc", "tp", "u10", "v10"]):
+            for t in self.transforms.get(name,[]):
+                if t == "m-to-mm":
+                    data[:,:,:,idx] *= 1_000
+                elif t == "logp1":
+                    data[:,:,:,idx] = data[:,:,:,idx].log1p()
+                elif t == "z-scale":
+                    data[:,:,:,idx] = (data[:,:,:,idx] - self.stats["mean"][name]) / self.stats["std"][name]
+                elif t == "-1to1":
+                    data[:,:,:,idx] = data[:,:,:,idx] / max(abs(self.stats["min"][name]),self.stats["max"][name])
+                elif t == "0to1":
+                    data[:,:,:,idx] = (data[:,:,:,idx] - self.stats["min"][name]) / (self.stats["max"][name] - self.stats["min"][name])
+                elif t == "boxcox":
+                    l = self.stats["lambda"][name]
+                    if l != 0:
+                        data[:,:,:,idx] = ((data[:,:,:,idx] ** l) - 1) / l
+                    else:
+                        data[:,:,:,idx] = data[:,:,:,idx].log()
+        return data
+
 def create_transform_function(dir: str, transforms: dict, seed: int=1339):
     """Creates a function that takes a tensor as input and applies the transformations to the variables stored in it."""
     # generate the transformations
@@ -172,26 +199,5 @@ def create_transform_function(dir: str, transforms: dict, seed: int=1339):
     with open(PREPROCESSING_VARS, 'r+') as file:
         # Load the file content into a Python list/dict
         file_data = json.load(file)
-    transformation_values = file_data[str(seed)]
-    def transformation(data: torch.tensor) -> torch.tensor:
-        # data variables are in the order: sp, t2m, tcc, tp, u10, v10
-        for idx, name in enumerate(["sp", "t2m", "tcc", "tp", "u10", "v10"]):
-            for t in transforms.get(name,[]):
-                if t == "m-to-mm":
-                    data[:,:,:,idx] *= 1_000
-                elif t == "logp1":
-                    data[:,:,:,idx] = data[:,:,:,idx].log1p()
-                elif t == "z-scale":
-                    data[:,:,:,idx] = (data[:,:,:,idx] - transformation_values["mean"][name]) / transformation_values["std"][name]
-                elif t == "-1to1":
-                    data[:,:,:,idx] = data[:,:,:,idx] / max(abs(transformation_values["min"][name]),transformation_values["max"][name])
-                elif t == "0to1":
-                    data[:,:,:,idx] = (data[:,:,:,idx] - transformation_values["min"][name]) / (transformation_values["max"][name] - transformation_values["min"][name])
-                elif t == "boxcox":
-                    l = transformation_values["lambda"][name]
-                    if l != 0:
-                        data[:,:,:,idx] = ((data[:,:,:,idx] ** l) - 1) / l
-                    else:
-                        data[:,:,:,idx] = data[:,:,:,idx].log()
-        return data
-    return transformation
+    stats = file_data[str(seed)]
+    return WeatherTransform(stats, transforms)

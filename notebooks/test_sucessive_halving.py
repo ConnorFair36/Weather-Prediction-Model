@@ -29,8 +29,10 @@ def _():
     from src.data.read_data import WeatherTrainingData, create_transform_function
     from src.models.convLSTM import baseline_ConvLSTM
     from src.engine.eval_model import evaluate_model
+    from src.engine.error_func import WeightedMSELoss
     return (
         WeatherTrainingData,
+        WeightedMSELoss,
         baseline_ConvLSTM,
         create_transform_function,
         evaluate_model,
@@ -57,13 +59,13 @@ def _(WeatherTrainingData, create_transform_function, utils):
 
     training_data = WeatherTrainingData(dir="./data/era5_conus_2025_1_to_2025_12_6var.zarr", set_type="train", transform=transforms)
     val_data = WeatherTrainingData(dir="./data/era5_conus_2025_1_to_2025_12_6var.zarr", set_type="validation", transform=transforms)
-    training_dataloader = utils.data.DataLoader(training_data, batch_size=128, shuffle=True)
-    val_dataloader = utils.data.DataLoader(val_data, batch_size=128, shuffle=True)
+    training_dataloader = utils.data.DataLoader(training_data, batch_size=128, shuffle=True, num_workers=2)
+    val_dataloader = utils.data.DataLoader(val_data, batch_size=128, shuffle=True, num_workers=2)
     return training_dataloader, val_dataloader
 
 
 @app.cell
-def _(nn, optim):
+def _(WeightedMSELoss, optim):
     params = {
         "model_input_dims": [6],
         "model_hidden_dim": [12, 16],
@@ -72,7 +74,7 @@ def _(nn, optim):
         "model_num_pred_steps": [3],
         "optimizer": [optim.AdamW],
         "optim_lr": [0.0001],
-        "loss": [nn.MSELoss]
+        "loss": [WeightedMSELoss]
     }
     return (params,)
 
@@ -89,8 +91,9 @@ def _(
         model_class=baseline_ConvLSTM,
         training_dataset=training_dataloader,
         validation_dataset=val_dataloader,
-        epochs=2,
-        hyper_parameters=params
+        epochs=25,
+        hyper_parameters=params,
+        dir="./src/weights/first_test/"
     )
     return
 
@@ -108,7 +111,7 @@ def _():
 
 @app.cell
 def _(baseline_ConvLSTM, evaluate_model, torch, val_dataloader):
-    model_weights = [f"./model_{i}.pth" for i in range(8)]
+    model_weights = [f"./src/weights/first_test/model_{i}.pth" for i in range(8)]
     t_lay = [1,2,1,2,1,2,1,2]
     k_size = [3,3,5,5,3,3,5,5]
     h_dim = [12,12,12,12,16,16,16,16]
@@ -118,6 +121,14 @@ def _(baseline_ConvLSTM, evaluate_model, torch, val_dataloader):
         model.load_state_dict(checkpoint['model_state_dict'])
         model = torch.compile(model)
         print(evaluate_model(model=model, dataset=val_dataloader))
+    return
+
+
+@app.cell
+def _(params):
+    import itertools
+    for i in list(itertools.product(*list(params.values()))):
+        print(i)
     return
 
 
@@ -134,7 +145,7 @@ def _(
     # quick test
     model_test = baseline_ConvLSTM(
         input_dims=6,
-        hidden_dim=12,
+        hidden_dim=16,
         kernel_size=3,
         num_layers=2,
         num_pred_steps=3

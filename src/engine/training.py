@@ -3,6 +3,7 @@ from torch import nn, utils, optim
 import numpy as np
 import itertools
 import math
+from tqdm.auto import tqdm
 
 
 def train_model(model: nn.Module, 
@@ -19,30 +20,32 @@ def train_model(model: nn.Module,
         all_losses = [[],[]]
         # training loop
         model.train()
-        for sample, truth in training_dataset:
-            # get the total precipitation for the ground truth
-            truth = truth[:,:,:,:,3].to(device, dtype=torch.float32)
-            sample = sample.permute((0,1,4,2,3)).to(device, dtype=torch.float32)
-            # adjust model weights based on loss
-            pred_rain = model(sample)
-            train_loss = loss_fun(pred_rain, truth)
-            optimizer.zero_grad()
-            train_loss.backward()
-            optimizer.step()
-            all_losses[0].append(train_loss.item())
-            # get the validation loss for this epoch
-        # validation loss
-        if epoch % val_freq == 0:
-            model.eval()
-            for sample, truth in validation_dataset:
+        with tqdm(training_dataset, unit="batch") as ttrain:
+            for sample, truth in ttrain:
                 # get the total precipitation for the ground truth
                 truth = truth[:,:,:,:,3].to(device, dtype=torch.float32)
                 sample = sample.permute((0,1,4,2,3)).to(device, dtype=torch.float32)
+                # adjust model weights based on loss
+                pred_rain = model(sample)
+                train_loss = loss_fun(pred_rain, truth)
+                optimizer.zero_grad()
+                train_loss.backward()
+                optimizer.step()
+                all_losses[0].append(train_loss.item())
+                # get the validation loss for this epoch
+        # validation loss
+        if epoch % val_freq == 0:
+            model.eval()
+            with tqdm(validation_dataset, unit="batch") as vtrain:
+                for sample, truth in vtrain:
+                    # get the total precipitation for the ground truth
+                    truth = truth[:,:,:,:,3].to(device, dtype=torch.float32)
+                    sample = sample.permute((0,1,4,2,3)).to(device, dtype=torch.float32)
 
-                with torch.no_grad():
-                    pred_rain = model(sample)
-                    val_loss = loss_fun(pred_rain, truth)
-                    all_losses[1].append(val_loss.item())
+                    with torch.no_grad():
+                        pred_rain = model(sample)
+                        val_loss = loss_fun(pred_rain, truth)
+                        all_losses[1].append(val_loss.item())
         else:
             all_losses[1].append(np.nan)
         # aggregate the losses for the train and validation loops
@@ -104,7 +107,8 @@ def sucessive_halving(model_class: nn.Module,
                       training_dataset: utils.data.Dataset,
                       validation_dataset: utils.data.Dataset,
                       epochs: int, 
-                      hyper_parameters: dict):
+                      hyper_parameters: dict,
+                      dir: str):
     """Applies the sucessive halving algorithm to find the best hyper parameters efficiently"""
     # gets all of the possible combinations of hyper parameters
     combinations = list(itertools.product(*list(hyper_parameters.values())))
@@ -114,8 +118,8 @@ def sucessive_halving(model_class: nn.Module,
         return None
     results = [[] for _ in range(n)]
     in_race = [True for _ in range(n)] # which parameter combinations are still active
-    budgets =  [math.ceil(epochs/(2**(i+1))) for i in range(math.ceil(math.log2(n)), -1, -1)]
-    model_checkpoints = [f"model_{idx}.pth" for idx in range(n)]
+    budgets =  [math.ceil(epochs/(2**(i))) for i in range(math.ceil(math.log2(n)), -1, -1)]
+    model_checkpoints = [f"{dir}model_{idx}.pth" for idx in range(n)]
     # loop through all of the filtering rounds
     for k in range(int(math.log2(n)) + 1):
         budget = budgets[k] if k == 0 else budgets[k] - budgets[k-1]
@@ -139,6 +143,7 @@ def sucessive_halving(model_class: nn.Module,
             # compile the model to boost performance
             model = torch.compile(model)
             # continue training
+            print(f"---training model_{model_idx} on {budget} epocks---")
             _train_model(model, training_dataset, budget, loss, optimizer)
             # save model performance after training
             results[model_idx].append(_val_model(model, validation_dataset, loss))
