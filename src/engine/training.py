@@ -17,6 +17,7 @@ def train_model(model: nn.Module,
     training_losses = [[],[]]
     device = str(next(model.parameters()).device)
     for epoch in range(epochs):
+        print(f"---Epoch {epoch}---")
         all_losses = [[],[]]
         # training loop
         model.train()
@@ -51,6 +52,8 @@ def train_model(model: nn.Module,
         # aggregate the losses for the train and validation loops
         training_losses[0].append(np.mean(all_losses[0]))
         training_losses[1].append(np.mean(all_losses[1]))
+        print(f" training loss:   {training_losses[0][-1]}")
+        print(f" validation loss: {training_losses[1][-1]}")
     return training_losses
 
 # functions for sucessive halving
@@ -169,6 +172,106 @@ def sucessive_halving(model_class: nn.Module,
     print(f"Best Model: model_{best_model}\n  Error:{final_results[best_model]}")
     
 
+def train_model_with_PCGrad(model: nn.Module, 
+                training_dataset: utils.data.Dataset,
+                validation_dataset: utils.data.Dataset,
+                epochs: int, 
+                loss_fun_list: list[nn.Module], 
+                optimizer: optim.Optimizer,
+                val_freq: int = 5) -> list[list[int]]:
+    """Trains to model on the given dataset and returns the training and validation loss over training and uses CPGrad for multiple error functions."""
+    training_losses = [[],[]]
+    device = str(next(model.parameters()).device)
+    for epoch in range(epochs):
+        print(f"---Epoch {epoch}---")
+        all_losses = [[],[]]
+        # training loop
+        model.train()
+        with tqdm(training_dataset, unit="batch") as ttrain:
+            for sample, truth in ttrain:
+                # get the total precipitation for the ground truth
+                truth = truth[:,:,:,:,3].to(device, dtype=torch.float32)
+                sample = sample.permute((0,1,4,2,3)).to(device, dtype=torch.float32)
+                # adjust model weights based on loss
+                pred_rain = model(sample)
+                new_losses = [loss_fun(pred_rain, truth) for loss_fun in loss_fun_list]
+                optimizer.zero_grad()
+                optimizer.pc_backward(new_losses)
+                optimizer.step()
+                current_loss = sum([train_loss.item() for train_loss in new_losses])
+                all_losses[0].append(current_loss)
+                # get the validation loss for this epoch
+        # validation loss
+        if epoch % val_freq == 0:
+            model.eval()
+            with tqdm(validation_dataset, unit="batch") as vtrain:
+                for sample, truth in vtrain:
+                    # get the total precipitation for the ground truth
+                    truth = truth[:,:,:,:,3].to(device, dtype=torch.float32)
+                    sample = sample.permute((0,1,4,2,3)).to(device, dtype=torch.float32)
+
+                    with torch.no_grad():
+                        pred_rain = model(sample)
+                        new_losses = [loss_fun(pred_rain, truth) for loss_fun in loss_fun_list]
+                        current_loss = sum([train_loss.item() for train_loss in new_losses])
+                        all_losses[1].append(current_loss)
+        else:
+            all_losses[1].append(np.nan)
+        # aggregate the losses for the train and validation loops
+        training_losses[0].append(np.mean(all_losses[0]))
+        training_losses[1].append(np.mean(all_losses[1]))
+        print(f" training loss:   {training_losses[0][-1]}")
+        print(f" validation loss: {training_losses[1][-1]}")
+    return training_losses
 
 
 
+def train_model_with_scaling(model: nn.Module, 
+                training_dataset: utils.data.Dataset,
+                validation_dataset: utils.data.Dataset,
+                epochs: int, 
+                loss_fun: nn.Module, 
+                optimizer: optim.Optimizer,
+                val_freq: int = 5) -> list[list[int]]:
+    """Trains to model on the given dataset and returns the training and validation loss over training."""
+    training_losses = [[],[]]
+    device = str(next(model.parameters()).device)
+    for epoch in range(epochs):
+        print(f"---Epoch {epoch}---")
+        all_losses = [[],[]]
+        # training loop
+        model.train()
+        with tqdm(training_dataset, unit="batch") as ttrain:
+            for sample, truth in ttrain:
+                # get the total precipitation for the ground truth
+                truth = truth[:,:,:,:,3].to(device, dtype=torch.float32)
+                sample = sample.permute((0,1,4,2,3)).to(device, dtype=torch.float32)
+                # adjust model weights based on loss
+                pred_rain = model(sample)
+                train_loss = loss_fun(pred_rain, truth)
+                optimizer.zero_grad()
+                train_loss.backward()
+                optimizer.step()
+                all_losses[0].append(loss_fun.last_value_loss + loss_fun.last_spatial_loss)
+                # get the validation loss for this epoch
+        # validation loss
+        if epoch % val_freq == 0:
+            model.eval()
+            with tqdm(validation_dataset, unit="batch") as vtrain:
+                for sample, truth in vtrain:
+                    # get the total precipitation for the ground truth
+                    truth = truth[:,:,:,:,3].to(device, dtype=torch.float32)
+                    sample = sample.permute((0,1,4,2,3)).to(device, dtype=torch.float32)
+
+                    with torch.no_grad():
+                        pred_rain = model(sample)
+                        val_loss = loss_fun(pred_rain, truth)
+                        all_losses[1].append(loss_fun.last_value_loss + loss_fun.last_spatial_loss)
+        else:
+            all_losses[1].append(np.nan)
+        # aggregate the losses for the train and validation loops
+        training_losses[0].append(np.mean(all_losses[0]))
+        training_losses[1].append(np.mean(all_losses[1]))
+        print(f" training loss:   {training_losses[0][-1]}")
+        print(f" validation loss: {training_losses[1][-1]}")
+    return training_losses

@@ -31,8 +31,9 @@ def _():
     from torch import utils, nn
     import torch.nn.functional as F
 
-    from src.data.read_data import WeatherTrainingData, transformations
+    from src.data.read_data import WeatherTrainingData
     return (
+        F,
         WeatherTrainingData,
         ccrs,
         cfeature,
@@ -56,11 +57,33 @@ def _(WeatherTrainingData):
 @app.cell
 def _(training_data, utils):
 
-    training_dataloader = utils.data.DataLoader(training_data, batch_size=128, num_workers=2)
+    training_dataloader = utils.data.DataLoader(training_data, batch_size=32)
 
     test_data = iter(training_dataloader)
-    example_data = next(test_data)
-    return (example_data,)
+    data, truth = next(test_data)
+    return (data,)
+
+
+@app.cell
+def _(data):
+    data.shape
+    return
+
+
+@app.cell
+def _(F, data, plt, torch):
+    kernel_x = torch.tensor([[-1., 0., 1.], [-2., 0., 2.], [-1., 0., 1.]]).view(1, 1, 3, 3)
+    data_x = F.conv2d(data[0, 0, :, :, 3:4].permute(2, 1, 0),   kernel_x, padding=1)
+    plt.imshow(data_x[0])
+    return
+
+
+@app.cell
+def _(F, data, plt, torch):
+    kernel_y = torch.tensor([[ 1.,  2.,  1.], [ 0.,  0.,  0.], [-1., -2., -1.]]).view(1, 1, 3, 3)
+    data_y = F.conv2d(data[0, 0, :, :, 3:4].permute(2, 1, 0),   kernel_y, padding=1)
+    plt.imshow(data_y[0])
+    return
 
 
 @app.cell
@@ -79,7 +102,7 @@ def _(training_data, utils):
         time_points[workers-1].append(time.monotonic())
         for data in test_training_dataloader:
             time_points[workers-1].append(time.monotonic())
-    return (time_points,)
+    return data, time_points
 
 
 @app.cell
@@ -220,10 +243,10 @@ def _(ccrs, example_data, imageio, nn, np, plt):
         avgpool = nn.AvgPool2d(kernel_size=4, stride=4)
         u = avgpool(example_data[0][0,:,4:5,i,:].permute((1,2,0))).numpy()[0,:,:]
         v = avgpool(example_data[0][0,:,5:6,i,:].permute((1,2,0))).numpy()[0,:,:]
-    
+
         #u = example_data[0][0,:,4,0,:].permute((1,0)).numpy()
         #v = example_data[0][0,:,5,0,:].permute((1,0)).numpy()
-    
+
         n, m = u.shape
         lon = np.linspace(-125, -66.5, m)
         lat = np.linspace(24.5, 49.5, n)
@@ -231,15 +254,15 @@ def _(ccrs, example_data, imageio, nn, np, plt):
         lon, lat = np.meshgrid(lon, lat)
         # Calculate wind speed (magnitude) for optional coloring
         speed = np.sqrt(u**2 + v**2)
-    
+
         u = u / speed
         v= v / speed
-    
+
         fig = plt.figure(figsize=(10, 5))
         ax3 = fig.add_subplot(1, 1, 1, projection=ccrs.PlateCarree()) # Use PlateCarree for simple lon/lat data
-    
+
         # plot wind speed not downsampled
-    
+
         wind_speed_map = plt.imshow(full_speed[:,:,i],
                   transform=ccrs.PlateCarree(),
                   extent=[-125, -66.5, 24.5, 49.5],
@@ -247,11 +270,11 @@ def _(ccrs, example_data, imageio, nn, np, plt):
                   vmin=color_min2, 
                   vmax=color_max2,
                   cmap="plasma")
-    
+
         # Add map features
         ax3.coastlines(resolution='110m',color="darkgray")
         ax3.set_title('Wind Speed and Direction on Map')
-    
+
         # Plot wind vectors using quiver
         # The transform=ccrs.PlateCarree() is crucial as it tells Cartopy the data's coordinate system
         # C=speed colors the arrows by wind speed magnitude
@@ -260,10 +283,10 @@ def _(ccrs, example_data, imageio, nn, np, plt):
                                 #cmap='plasma', 
                                 scale=1,
                                 scale_units='xy')
-    
+
         # Add a color bar for wind speed
         fig.colorbar(wind_speed_map, ax=ax3, label='Wind Speed (m/s)')
-    
+
         filename2 = f'wind_frame_{i:02d}.png'
         filenames2.append(filename2)
         plt.savefig(filename2)

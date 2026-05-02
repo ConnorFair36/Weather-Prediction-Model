@@ -11,38 +11,46 @@ def _():
 
     # Walk up one level from notebooks/ to reach the project root
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-    return
+    return (os,)
 
 
 @app.cell
-def _():
+def _(os):
     import marimo as mo
+    # torch.compile logs
+    from dotenv import load_dotenv
+    load_dotenv()
+    os.environ["TORCH_LOGS"] = "+dynamo"
+    os.environ["TORCH_LOGS_OUT"] = "torch_compile.log"  # writes to this file
+
     import numpy as np
     import torch
     from torch import nn, utils, optim
     from src.models.convLSTM_parts import ConvLSTM
-    from src.engine.training import train_model
+    from src.engine.training import train_model, train_model_with_PCGrad, train_model_with_scaling
+    from src.engine.pcgrad import PCGrad
 
     import matplotlib.pyplot as plt
     import seaborn as sns
 
     from src.data.read_data import WeatherTrainingData, create_transform_function
-    from src.models.convLSTM import baseline_ConvLSTM
-    from src.engine.eval_model import evaluate_model
-    from src.engine.error_func import WeightedMSELoss
+    from src.models.convGRU import baseline_ConvGRU
+    from src.engine.eval_model import evaluate_model, evaluate_model_by_t
+    from src.engine.error_func import WeightedMSELoss, SpatialLoss, LocalLoss
     import pandas as pd
     return (
+        LocalLoss,
         WeatherTrainingData,
-        WeightedMSELoss,
-        baseline_ConvLSTM,
+        baseline_ConvGRU,
         create_transform_function,
         evaluate_model,
+        evaluate_model_by_t,
         optim,
         pd,
         plt,
         sns,
         torch,
-        train_model,
+        train_model_with_scaling,
         utils,
     )
 
@@ -67,17 +75,18 @@ def _(WeatherTrainingData, create_transform_function, utils):
 
 
 @app.cell
-def _(WeightedMSELoss, baseline_ConvLSTM, optim):
-    model = baseline_ConvLSTM(
+def _(LocalLoss, baseline_ConvGRU, optim, torch):
+    model = baseline_ConvGRU(
         input_dims=6,
         hidden_dim=20,
         kernel_size=5,
         num_layers=2,
         num_pred_steps=3
     )
-    loss_fun = WeightedMSELoss()
+    loss_fun = LocalLoss()
     optimizer = optim.AdamW(model.parameters(), lr=0.0001)
     epochs = 30
+    model = torch.compile(model=model)
     return epochs, loss_fun, model, optimizer
 
 
@@ -87,17 +96,18 @@ def _(
     loss_fun,
     model,
     optimizer,
-    train_model,
+    train_model_with_scaling,
     training_dataloader,
     val_dataloader,
 ):
-    results = train_model(
+    results = train_model_with_scaling(
         model=model,
         training_dataset=training_dataloader,
         validation_dataset=val_dataloader,
         epochs=epochs,
         loss_fun=loss_fun,
-        optimizer=optimizer
+        optimizer=optimizer,
+        val_freq=1
     )
     return (results,)
 
@@ -112,7 +122,7 @@ def _(results):
 def _(plt, results, sns):
     sns.lineplot(results[0])
     sns.lineplot(results[1])
-    plt.savefig("./src/weights/trial3_trainval_curve.png")
+    plt.savefig("./src/weights/trial5_trainval_curve.png")
     plt.show()
     return
 
@@ -120,7 +130,7 @@ def _(plt, results, sns):
 @app.cell
 def _(pd, results):
     df = pd.DataFrame({'train': results[0], 'validation': results[1]})
-    df.to_csv("./src/weights/trial_3_trainval.csv")
+    df.to_csv("./src/weights/trial_5_trainval.csv")
     return
 
 
@@ -171,8 +181,8 @@ def _(model, sample, torch):
 
 @app.cell
 def _(plt, pred, torch, truth):
-    scaled_truth = torch.expm1(truth[0,:,:,:,3]) / 1_000
-    scaled_pred  = torch.expm1(pred[0,:]) / 1_000
+    scaled_truth = torch.expm1(truth[2,:,:,:,3]) / 1_000
+    scaled_pred  = torch.expm1(pred[2,:]) / 1_000
 
     max_rain = max(torch.max(scaled_truth), torch.max(scaled_pred))
     fig, axs = plt.subplots(2, 3,  figsize=(15, 10))
@@ -194,7 +204,7 @@ def _(plt, pred, torch, truth):
     cbar_ax.set_title("Rain (m)", pad=12)
     plt.subplots_adjust(wspace=0.2, hspace=-0.7)
     fig.suptitle("Model Predictions vs. Ground Truth", fontsize=16, y=0.73)
-    plt.savefig("./src/weights/trial_3_sample.png")
+    plt.savefig("./src/weights/trial_5_sample.png")
     plt.show()
     return
 
@@ -215,10 +225,17 @@ def _(plt, truth):
 def _(model, optimizer, torch):
     checkpoint = {
         'epoch': 30,
-        'model_state_dict': model.state_dict(),
+        'model_state_dict': model._orig_mod.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
     }
-    torch.save(checkpoint, './src/weights/BaselineLSTM_Trial_3.pth')
+    torch.save(checkpoint, './src/weights/BaselineGRU_Trial_5.pth')
+    return
+
+
+@app.cell
+def _(evaluate_model_by_t, model, val_dataloader):
+    evaluation_t = evaluate_model_by_t(model, val_dataloader)
+    evaluation_t
     return
 
 
