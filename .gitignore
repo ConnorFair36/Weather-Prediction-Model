@@ -18,9 +18,15 @@ pyproject.toml
 src/weights/*.pt
 src/weights/*.pth
 
+# Storage for trials
+src/weights/*/*.pth
+src/weights/*/*.csv
+src/weights/*/*.png
+
 # Storage for datasets
 data/*.zarr
 data/*.grib
+data/*.idx
 data/*.zip
 
 # generated gifs

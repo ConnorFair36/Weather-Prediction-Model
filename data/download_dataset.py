@@ -10,7 +10,7 @@ import datetime
 import yaml
 
 # read the yaml config file dataset settings
-with open('../configs/config.yaml', 'r') as file:
+with open('../configs/download_config.yaml', 'r') as file:
     config_data = yaml.safe_load(file)
 
 

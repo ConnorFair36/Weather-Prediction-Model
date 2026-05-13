@@ -8,9 +8,10 @@ scikit-learn
 torch
 cdsapi
 xarray
-gribapi
+cfgrib
 dask
 zarr
 pyyaml
 netcdf4
 tqdm
+yacs

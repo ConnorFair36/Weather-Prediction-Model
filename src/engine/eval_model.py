@@ -66,8 +66,6 @@ def evaluate_model(model: nn.Module, dataset: torch.utils.data.dataloader.DataLo
         "csi": csi,
         "far": far,
         "pod": pod,
-        "gt": ground_truth,
-        "pred": predictions
     }
 
 def evaluate_model_by_t(model: nn.Module, dataset: torch.utils.data.dataloader.DataLoader) -> dict:
@@ -120,6 +118,4 @@ def evaluate_model_by_t(model: nn.Module, dataset: torch.utils.data.dataloader.D
         "csi": csi,
         "far": far,
         "pod": pod,
-        "gt": ground_truth,
-        "pred": predictions
     }
