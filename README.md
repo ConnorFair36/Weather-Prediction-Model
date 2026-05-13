@@ -38,12 +38,19 @@ cd ..
 
 ### Training
 
-> A script for training a model is coming soon, refer to the notebooks folder for now
+To train a model, go to the config.yaml file and set `MODE: "training"`. This will create a new folder in `src/weights` that will store the model weights, optimizer state, training and validation curve plot and csv. To run you training parameters run:
 
+```
+uv run main.py configs/config.yaml
+```
 
 ### Inference
 
-> A script for running inference on a model is coming soon, refer to the notebooks folder for now
+To test a model, go to the config.yaml file and set `MODE: "inference"`. This will print out the overall metrics and the metrics for each timestep. To run:
+
+```
+uv run main.py configs/config.yaml
+```
 
 ## Resources
 
