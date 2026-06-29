@@ -6,7 +6,7 @@ Over the past 50 years, extreme weather events have been estimated to cause 2 mi
 
 In this project, I took inspiration from [this paper](https://arxiv.org/abs/1506.04214) and applied their ConvLSTM to data collected from the [era5 hourly dataset](https://cds.climate.copernicus.eu/datasets/derived-era5-single-levels-daily-statistics?tab=overview). I also experimented with combining the GRU and ConvLSTM architectures to improve performance and new loss functions to improve accurucy. 
 
-> The full article going in-depth on the experiments I ran are coming soon
+[The article going over all of the experiments I ran for this project](https://connorfair36.github.io/mach-learn/weather-pred/)
 
 ## Usage
 
